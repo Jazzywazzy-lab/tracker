@@ -1,0 +1,615 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Exercise Tracker</title>
+<style>
+  :root {
+    --bg: #f3f5f2; --card: #ffffff; --ink: #12201a; --muted: #4a5a52; --line: #d6ddd8;
+    --accent: #0b6b52; --accent-soft: #e3f1ec;
+    --good-bg: #dff3ea; --good-ink: #0b4f3d;
+    --bad-bg: #ffe9d1;  --bad-ink: #5c2b00;
+    --err: #a3261a;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif; }
+  .wrap { max-width: 520px; margin: 0 auto; padding: 24px 16px 40px; }
+  .hidden { display: none !important; }
+  h1 { font-size: 28px; margin: 8px 0 6px; }
+  h2 { font-size: 20px; margin: 0 0 12px; }
+  p.sub { color: var(--muted); margin: 0 0 20px; line-height: 1.5; }
+  label { display: block; font-size: 14px; font-weight: 700; margin: 0 0 6px; }
+  input, select {
+    width: 100%; height: 50px; padding: 0 14px; margin: 0 0 16px; font: inherit; font-size: 17px;
+    border: 2px solid #c9d2cc; border-radius: 12px; background: #fff; color: var(--ink);
+  }
+  input:focus, select:focus { outline: 3px solid #9fd9c5; border-color: var(--accent); }
+  button {
+    width: 100%; min-height: 52px; border: none; border-radius: 14px; font: inherit;
+    font-size: 17px; font-weight: 700; cursor: pointer; background: var(--accent); color: #fff;
+  }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  button.ghost { background: transparent; color: var(--ink); border: 2px solid #c9d2cc; }
+  button.danger { background: #8a2e1f; }
+  .row { display: flex; gap: 10px; }
+  .row > * { flex: 1; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 18px; }
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; background: #e3e8e5;
+    padding: 5px; border-radius: 14px; margin-bottom: 18px; }
+  .tabs button { min-height: 42px; background: transparent; color: var(--muted); font-size: 15px; }
+  .tabs button.on { background: #fff; color: var(--ink); }
+  .error { color: var(--err); font-weight: 600; font-size: 14px; min-height: 20px; margin: -4px 0 12px; }
+  .note { background: #fff4e0; border: 1px solid #f0d29c; color: #5c3b00; padding: 12px 14px;
+    border-radius: 12px; font-size: 14px; margin-bottom: 16px; line-height: 1.45; }
+
+  .topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .topbar .who { font-weight: 700; }
+  .topbar button { width: auto; min-height: 40px; padding: 0 14px; font-size: 14px; }
+
+  .stage { position: relative; width: 100%; aspect-ratio: 3 / 4; border-radius: 18px; overflow: hidden;
+    background: #26302b; margin: 14px 0; }
+  .stage video, .stage canvas { position: absolute; inset: 0; width: 100%; height: 100%;
+    object-fit: cover; transform: scaleX(-1); }
+  .stage .placeholder { position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; text-align: center; color: #cfd8d3; padding: 24px; font-size: 15px; }
+  .badge { position: absolute; top: 10px; left: 10px; background: rgba(16,24,20,.85); color: #fff;
+    font-size: 12px; font-weight: 700; padding: 6px 10px; border-radius: 999px; }
+  .angles { position: absolute; bottom: 10px; left: 10px; right: 10px; background: rgba(16,24,20,.8);
+    color: #e6ece8; font: 600 13px ui-monospace, Menlo, monospace; padding: 8px 10px; border-radius: 10px; }
+
+  .stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+  .stat span { display: block; font-size: 12px; font-weight: 700; color: var(--muted); }
+  .stat strong { font-size: 28px; }
+  .stat.good strong { color: var(--good-ink); }
+  .stat.bad strong { color: #8a4100; }
+  .msg { margin: 12px 0; padding: 14px 16px; border-radius: 14px; font-weight: 700; background: #e6ebe8; }
+  .msg.good { background: var(--good-bg); color: var(--good-ink); }
+  .msg.bad { background: var(--bad-bg); color: var(--bad-ink); }
+  .status { font-size: 14px; color: var(--muted); text-align: center; margin-top: 10px; }
+  .big { font-size: 56px; font-weight: 800; line-height: 1; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ================= LOGIN / REGISTER ================= -->
+  <section id="authScreen">
+    <h1>Exercise Tracker</h1>
+    <p class="sub">Log in to start your station. Your video never leaves this phone.</p>
+
+    <div id="configNote" class="note hidden">
+      Firebase isn't set up yet. Paste your project's config into <b>firebaseConfig</b> in index.html.
+    </div>
+
+    <div class="tabs" role="tablist">
+      <button id="tabLogin" class="on" role="tab">Log in</button>
+      <button id="tabRegister" role="tab">New user</button>
+    </div>
+
+    <form id="loginForm" class="card" autocomplete="on">
+      <label for="loginUser">User ID</label>
+      <input id="loginUser" autocomplete="username" autocapitalize="off" required>
+      <label for="loginPass">Passcode</label>
+      <input id="loginPass" type="password" autocomplete="current-password" required>
+      <div id="loginError" class="error" role="alert"></div>
+      <button type="submit">Log in</button>
+    </form>
+
+    <form id="registerForm" class="card hidden" autocomplete="off">
+      <label for="regUser">Username</label>
+      <input id="regUser" autocapitalize="off" placeholder="3–20 letters, numbers, _ or -" required>
+      <label for="regPass">Password</label>
+      <input id="regPass" type="password" autocomplete="new-password" required>
+      <label for="regPass2">Confirm password</label>
+      <input id="regPass2" type="password" autocomplete="new-password" required>
+      <label for="regStation">Station</label>
+      <select id="regStation">
+        <option value="squats">Station 1 – Squats</option>
+        <option value="jumping_jacks">Station 2 – Jumping jacks</option>
+      </select>
+      <div id="regError" class="error" role="alert"></div>
+      <button type="submit">Create account</button>
+    </form>
+  </section>
+
+  <!-- ================= MAIN (CAMERA + SESSION) ================= -->
+  <section id="mainScreen" class="hidden">
+    <div class="topbar">
+      <div class="who">Hi, <span id="whoName"></span></div>
+      <button id="logoutBtn" class="ghost">Log out</button>
+    </div>
+
+    <div id="setupBox">
+      <label for="station">Station</label>
+      <select id="station">
+        <option value="squats">Station 1 – Squats</option>
+        <option value="jumping_jacks">Station 2 – Jumping jacks</option>
+      </select>
+      <p id="positionTip" class="sub" style="margin-bottom:0"></p>
+    </div>
+
+    <div class="stage">
+      <video id="video" playsinline muted></video>
+      <canvas id="canvas"></canvas>
+      <div id="camPlaceholder" class="placeholder">Camera is off.<br>Tap “Turn on camera” below.</div>
+      <div id="liveBadge" class="badge hidden">● Camera on · stays on device</div>
+    </div>
+
+    <div id="sessionBox" class="hidden">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:10px">
+        <h2 id="sessionExercise" style="margin:0; font-size:24px">Squats</h2>
+        <span id="sessionStation" style="background:var(--accent-soft); color:var(--good-ink); font-weight:700; font-size:14px; padding:6px 12px; border-radius:999px">Station 1</span>
+      </div>
+      <div id="msg" class="msg">Get into position…</div>
+    </div>
+
+    <div class="row" style="flex-direction:column">
+      <button id="camBtn">Turn on camera</button>
+      <button id="startBtn" class="hidden" disabled>Loading pose model…</button>
+      <button id="endBtn" class="danger hidden">End session</button>
+    </div>
+    <div id="mainStatus" class="status" role="status"></div>
+  </section>
+
+  <!-- ================= SUMMARY ================= -->
+  <section id="summaryScreen" class="hidden">
+    <h1>Session complete</h1>
+    <p id="sumWho" class="sub"></p>
+    <div class="card" style="text-align:center; margin-bottom:14px">
+      <div style="color:var(--muted); font-weight:700; margin-bottom:6px">Session time</div>
+      <div class="big" id="sumTime">0:00</div>
+      <p class="sub" style="margin:12px 0 0">Great work! Your results were sent to your instructor.</p>
+    </div>
+    <div id="sumSaved" class="status" style="margin-bottom:14px"></div>
+    <button id="againBtn">Back to station</button>
+  </section>
+</div>
+
+<script type="module">
+import { PoseLandmarker, FilesetResolver, DrawingUtils }
+  from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/vision_bundle.mjs";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, get, set, push, update, serverTimestamp }
+  from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+/* =====================================================================
+   1. FIREBASE CONFIG — paste yours from the Firebase console
+   ===================================================================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyCnpUkPYH2WRN1Ort6ui0dyeG1Jj8dDUGw",
+  authDomain: "cccare-ac2e3.firebaseapp.com",
+  databaseURL: "https://cccare-ac2e3-default-rtdb.firebaseio.com",
+  projectId: "cccare-ac2e3",
+  storageBucket: "cccare-ac2e3.firebasestorage.app",
+  messagingSenderId: "752494505258",
+  appId: "1:752494505258:web:0d9572640e8755dcf8c253",
+};
+
+/* =====================================================================
+   2. FORM RULES — tune these after testing (live angles show on screen)
+   ===================================================================== */
+const RULES = {
+  squats: {
+    downAt: 110,     // knee angle below this = person is squatting (rep has started)
+    upAt: 160,       // knee angle above this = standing again (rep ends)
+    goodDepth: 95,   // CORRECT if lowest knee angle reached is at or below this
+    maxLean: 50,     // CORRECT if torso leaned no more than this (degrees from vertical)
+  },
+  jumping_jacks: {
+    openArm: 100,    // arms above this (or legs wider than openLeg) = "open" phase started
+    openLeg: 1.5,
+    closedArm: 45,   // arms below this AND legs narrower than closedLeg = back to start
+    closedLeg: 1.35,
+    goodArm: 150,    // CORRECT if arms reached at least this (180 = straight overhead)
+    goodLeg: 1.8,    // CORRECT if feet reached at least this many hip-widths apart
+  },
+};
+
+// Instructor is alerted (buzzer) once a participant reaches this many incorrect reps
+const ALERT_AFTER = 5;
+
+const STATION_NAMES ={ squats: "Squats", jumping_jacks: "Jumping jacks" };
+const TIPS = {
+  squats: "Prop the phone up side-on, about 2 m away, so your whole body (head to feet) is in frame.",
+  jumping_jacks: "Face the phone, about 2.5 m away, so your whole body and raised arms fit in frame.",
+};
+
+/* ===================================================================== */
+const $ = (id) => document.getElementById(id);
+const configured = !Object.values(firebaseConfig).includes("PASTE_HERE");
+const db = configured ? getDatabase(initializeApp(firebaseConfig)) : null;
+if (!configured) $("configNote").classList.remove("hidden");
+
+let currentUser = null;      // username
+let station = "squats";
+let stream = null, pose = null, drawer = null;
+let running = false, lastVideoTime = -1;
+let good = 0, bad = 0, startTime = 0;
+let issues = {};             // tally of form problems, e.g. { "go deeper": 4 }
+let tracker = null;          // per-exercise state machine
+
+/* ---------- small helpers ---------- */
+function show(id) {
+  for (const s of ["authScreen", "mainScreen", "summaryScreen"]) $(s).classList.toggle("hidden", s !== id);
+}
+function validUsername(u) { return /^[A-Za-z0-9_-]{3,20}$/.test(u); }
+async function hash(username, pass) {
+  // Not real security — just avoids storing the passcode as plain text.
+  const data = new TextEncoder().encode(username.toLowerCase() + ":" + pass);
+  const buf = await crypto.subtle.digest("SHA-256", data);
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+function pct() { const t = good + bad; return t ? Math.round((good / t) * 100) : 0; }
+function fmtTime(s) { return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; }
+function remember(u) { try { localStorage.setItem("et_user", u); } catch (e) {} }
+function forget() { try { localStorage.removeItem("et_user"); } catch (e) {} }
+function recall() { try { return localStorage.getItem("et_user"); } catch (e) { return null; } }
+
+/* =====================================================================
+   3. LOGIN / REGISTER (stored in Realtime Database, no Firebase Auth)
+   ===================================================================== */
+$("tabLogin").onclick = () => switchTab(true);
+$("tabRegister").onclick = () => switchTab(false);
+function switchTab(login) {
+  $("tabLogin").classList.toggle("on", login);
+  $("tabRegister").classList.toggle("on", !login);
+  $("loginForm").classList.toggle("hidden", !login);
+  $("registerForm").classList.toggle("hidden", login);
+}
+
+$("registerForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = $("regError"); err.textContent = "";
+  const u = $("regUser").value.trim().toLowerCase();
+  const p1 = $("regPass").value, p2 = $("regPass2").value;
+  if (!db) return (err.textContent = "Add your Firebase config first.");
+  if (!validUsername(u)) return (err.textContent = "Username: 3–20 letters, numbers, _ or -.");
+  if (p1.length < 4) return (err.textContent = "Password must be at least 4 characters.");
+  if (p1 !== p2) return (err.textContent = "Passwords don't match.");
+  try {
+    const snap = await get(ref(db, "users/" + u));
+    if (snap.exists()) return (err.textContent = "That username is taken.");
+    await set(ref(db, "users/" + u), {
+      passHash: await hash(u, p1),
+      station: $("regStation").value,
+      created: serverTimestamp(),
+    });
+    enterApp(u, $("regStation").value);
+  } catch (ex) { err.textContent = "Couldn't reach the database: " + ex.message; }
+};
+
+$("loginForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const err = $("loginError"); err.textContent = "";
+  const u = $("loginUser").value.trim().toLowerCase();
+  const p = $("loginPass").value;
+  if (!db) return (err.textContent = "Add your Firebase config first.");
+  try {
+    const snap = await get(ref(db, "users/" + u));
+    if (!snap.exists() || snap.val().passHash !== (await hash(u, p))) {
+      return (err.textContent = "Wrong user ID or passcode.");
+    }
+    enterApp(u, snap.val().station || "squats");
+  } catch (ex) { err.textContent = "Couldn't reach the database: " + ex.message; }
+};
+
+function enterApp(u, st) {
+  currentUser = u; remember(u);
+  $("whoName").textContent = u;
+  setStation(st);
+  show("mainScreen");
+}
+
+$("logoutBtn").onclick = () => {
+  stopCamera(); forget(); currentUser = null;
+  $("loginPass").value = "";
+  show("authScreen");
+};
+
+$("station").onchange = () => {
+  setStation($("station").value);
+  if (db && currentUser) update(ref(db, "users/" + currentUser), { station }).catch(() => {});
+};
+function setStation(st) {
+  station = st;
+  $("station").value = st;
+  $("positionTip").textContent = TIPS[st];
+}
+
+// Stay logged in on this phone after a refresh
+(async () => {
+  const saved = recall();
+  if (!saved || !db) return;
+  try {
+    const snap = await get(ref(db, "users/" + saved));
+    if (snap.exists()) enterApp(saved, snap.val().station || "squats");
+  } catch (e) {}
+})();
+
+/* =====================================================================
+   4. CAMERA + MEDIAPIPE MODEL
+   ===================================================================== */
+const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
+
+// Load the pose model in the background as soon as the page opens
+(async () => {
+  try {
+    const vision = await FilesetResolver.forVisionTasks(
+      "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    pose = await PoseLandmarker.createFromOptions(vision, {
+      baseOptions: {
+        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task",
+        delegate: "GPU",
+      },
+      runningMode: "VIDEO", numPoses: 1,
+    });
+    drawer = new DrawingUtils(ctx);
+    refreshStartBtn();
+  } catch (e) {
+    $("mainStatus").textContent = "Couldn't load the pose model: " + e.message;
+  }
+})();
+
+$("camBtn").onclick = async () => {
+  $("mainStatus").textContent = "";
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } }, audio: false,
+    });
+  } catch (e) {
+    $("mainStatus").textContent = e.name === "NotAllowedError"
+      ? "Camera permission was denied. Allow it in your browser settings, then try again."
+      : "Couldn't open the camera: " + e.message;
+    return;
+  }
+  video.srcObject = stream;
+  await video.play();
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  $("camPlaceholder").classList.add("hidden");
+  $("liveBadge").classList.remove("hidden");
+  $("camBtn").classList.add("hidden");
+  $("startBtn").classList.remove("hidden");
+  refreshStartBtn();
+  requestAnimationFrame(loop);   // preview skeleton + angles before starting
+};
+
+function refreshStartBtn() {
+  const b = $("startBtn");
+  b.disabled = !pose || !stream;
+  b.textContent = pose ? "Start session" : "Loading pose model…";
+}
+
+function stopCamera() {
+  running = false;
+  if (stream) stream.getTracks().forEach((t) => t.stop());
+  stream = null;
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  $("camPlaceholder").classList.remove("hidden");
+  $("liveBadge").classList.add("hidden");
+  $("mainStatus").textContent = "";
+  $("camBtn").classList.remove("hidden");
+  $("startBtn").classList.add("hidden");
+  $("endBtn").classList.add("hidden");
+  $("sessionBox").classList.add("hidden");
+  $("setupBox").classList.remove("hidden");
+}
+
+/* =====================================================================
+   5. ANGLE MATH
+   ===================================================================== */
+// Convert a landmark (0–1 coordinates) to pixels so angles aren't stretched
+function P(l) { return { x: l.x * canvas.width, y: l.y * canvas.height, v: l.visibility ?? 1 }; }
+function angle(a, b, c) {           // angle at b, in degrees
+  let d = Math.abs((Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI);
+  return d > 180 ? 360 - d : d;
+}
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+function smooth(prev, next, k = 0.5) { return prev == null ? next : prev + k * (next - prev); }
+
+/* ---------- SQUATS (side view) ----------
+   Knee angle = hip–knee–ankle. Torso lean = shoulder–hip line vs. vertical.
+   A rep = going below downAt, then back above upAt.
+   CORRECT if the deepest knee angle ≤ goodDepth AND lean stayed ≤ maxLean. */
+function makeSquatTracker() {
+  const R = RULES.squats;
+  let stage = "up", lowest = 180, maxLean = 0, knee = null, lean = null;
+  return {
+    update(lm) {
+      const L = [11, 23, 25, 27].map((i) => P(lm[i]));   // shoulder, hip, knee, ankle (left)
+      const Rt = [12, 24, 26, 28].map((i) => P(lm[i]));  // right side
+      const vis = (s) => s.reduce((t, p) => t + p.v, 0);
+      const [sh, hip, kn, an] = vis(L) >= vis(Rt) ? L : Rt;  // use the side the camera sees best
+      if (Math.min(sh.v, hip.v, kn.v, an.v) < 0.5) return { guide: "Step back so your whole body is in frame (side-on)" };
+
+      knee = smooth(knee, angle(hip, kn, an));
+      lean = smooth(lean, Math.atan2(Math.abs(sh.x - hip.x), Math.abs(sh.y - hip.y)) * 180 / Math.PI);
+      let rep = null;
+
+      if (stage === "up" && knee < R.downAt) { stage = "down"; lowest = knee; maxLean = lean; }
+      else if (stage === "down") {
+        lowest = Math.min(lowest, knee); maxLean = Math.max(maxLean, lean);
+        if (knee > R.upAt) {
+          stage = "up";
+          const deepOk = lowest <= R.goodDepth, leanOk = maxLean <= R.maxLean;
+          const problems = [];
+          if (!deepOk) problems.push(`go deeper (reached ${Math.round(lowest)}°, aim ≤ ${R.goodDepth}°)`);
+          if (!leanOk) problems.push(`keep chest up (leaned ${Math.round(maxLean)}°)`);
+          rep = { ok: deepOk && leanOk, why: problems.join(" · ") };
+        }
+      }
+      return { rep, text: `knee ${Math.round(knee)}°  lean ${Math.round(lean)}°  [${stage}]` };
+    },
+  };
+}
+
+/* ---------- JUMPING JACKS (facing camera) ----------
+   Arm angle = hip–shoulder–elbow (0 = arms down, 180 = straight up), both sides averaged.
+   Leg spread = distance between ankles ÷ distance between hips.
+   A rep = open (arms up / legs out) then back closed.
+   CORRECT if, during the open phase, arms reached goodArm AND legs reached goodLeg. */
+function makeJJTracker() {
+  const R = RULES.jumping_jacks;
+  let stage = "closed", peakArm = 0, peakLeg = 0, arm = null, leg = null;
+  return {
+    update(lm) {
+      const idx = [11, 12, 13, 14, 23, 24, 27, 28];
+      const [lS, rS, lE, rE, lH, rH, lA, rA] = idx.map((i) => P(lm[i]));
+      if (Math.min(...[lS, rS, lE, rE, lH, rH, lA, rA].map((p) => p.v)) < 0.5)
+        return { guide: "Step back and face the camera with your whole body in frame" };
+
+      arm = smooth(arm, (angle(lH, lS, lE) + angle(rH, rS, rE)) / 2);
+      leg = smooth(leg, dist(lA, rA) / Math.max(dist(lH, rH), 1));
+      let rep = null;
+
+      if (stage === "closed" && (arm > R.openArm || leg > R.openLeg)) {
+        stage = "open"; peakArm = arm; peakLeg = leg;
+      } else if (stage === "open") {
+        peakArm = Math.max(peakArm, arm); peakLeg = Math.max(peakLeg, leg);
+        if (arm < R.closedArm && leg < R.closedLeg) {
+          stage = "closed";
+          const armOk = peakArm >= R.goodArm, legOk = peakLeg >= R.goodLeg;
+          const problems = [];
+          if (!armOk) problems.push(`arms higher (reached ${Math.round(peakArm)}°, aim ≥ ${R.goodArm}°)`);
+          if (!legOk) problems.push(`jump wider (${peakLeg.toFixed(1)}× hips, aim ≥ ${R.goodLeg}×)`);
+          rep = { ok: armOk && legOk, why: problems.join(" · ") };
+        }
+      }
+      return { rep, text: `arms ${Math.round(arm)}°  legs ${leg.toFixed(2)}× hips  [${stage}]` };
+    },
+  };
+}
+
+/* =====================================================================
+   6. MAIN LOOP — runs on every camera frame
+   ===================================================================== */
+let previewTracker = null;
+function loop() {
+  if (!stream) return;
+  if (pose && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
+    const result = pose.detectForVideo(video, performance.now());
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    const lm = result.landmarks[0];
+
+    // Before a session starts, still show live angles so you can test positions
+    const t = running ? tracker
+      : (previewTracker ||= station === "squats" ? makeSquatTracker() : makeJJTracker());
+
+    // Draw the skeleton: lines + dots (no angle numbers)
+    if (lm) {
+      drawer.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#7fe0bf", lineWidth: 4 });
+      drawer.drawLandmarks(lm, { color: "#ffffff", radius: 3 });
+    }
+    const out = lm ? t.update(lm) : { guide: "No person detected — step into view" };
+    if (running) {
+      if (out.rep) countRep(out.rep);
+      else if (out.guide) setMsg(out.guide, "");
+      else if ($("msg").textContent !== "Session in progress — keep going!" && good + bad > 0)
+        setMsg("Session in progress — keep going!", "");
+    } else {
+      $("mainStatus").textContent = out.guide || "✓ You're in frame — ready to start";
+    }
+  }
+  requestAnimationFrame(loop);
+}
+$("station").addEventListener("change", () => { previewTracker = null; });
+
+// Participants never see if a rep was correct — only the instructor does
+function countRep(rep) {
+  if (rep.ok) good++;
+  else {
+    bad++;
+    // "go deeper (reached 106°…) · keep chest up (…)" → count "go deeper", "keep chest up"
+    for (const p of (rep.why || "incorrect form").split(" · ")) {
+      const key = p.split(" (")[0];
+      issues[key] = (issues[key] || 0) + 1;
+    }
+  }
+  setMsg("Session in progress — keep going!", "");
+  sendLive("active", rep.ok ? "CORRECT" : "INCORRECT", rep.ok ? "" : rep.why);
+}
+
+// e.g. "go deeper ×4 · keep chest up ×2" (most common first)
+function issueSummary() {
+  return Object.entries(issues).sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k} ×${n}`).join(" · ");
+}
+function setMsg(text, kind) { $("msg").textContent = text; $("msg").className = "msg " + kind; }
+
+/* =====================================================================
+   7. START / END SESSION + FIREBASE WRITES
+   ===================================================================== */
+$("startBtn").onclick = () => {
+  good = 0; bad = 0; issues = {}; startTime = Date.now();
+  tracker = station === "squats" ? makeSquatTracker() : makeJJTracker();
+  running = true;
+  $("sessionExercise").textContent = STATION_NAMES[station];
+  $("sessionStation").textContent = station === "squats" ? "Station 1" : "Station 2";
+  setMsg("Go! Start your " + STATION_NAMES[station].toLowerCase(), "");
+  $("setupBox").classList.add("hidden");
+  $("sessionBox").classList.remove("hidden");
+  $("startBtn").classList.add("hidden");
+  $("endBtn").classList.remove("hidden");
+  sendLive("active", "", "");
+};
+
+$("endBtn").onclick = async () => {
+  running = false;
+  const secs = Math.round((Date.now() - startTime) / 1000);
+  const session = {
+    username: currentUser,
+    exercise: station,
+    correct: good,
+    incorrect: bad,
+    total: good + bad,
+    percent_correct: pct(),
+    needed_attention: bad >= ALERT_AFTER,
+    issues: issueSummary(),
+    duration_sec: secs,
+    started: startTime,
+    ended: Date.now(),
+  };
+
+  $("sumWho").textContent = `${currentUser} · ${STATION_NAMES[station]}`;
+  $("sumTime").textContent = fmtTime(secs);
+  $("sumSaved").textContent = "Saving…";
+  stopCamera();
+  show("summaryScreen");
+
+  try {
+    sendLive("done", "", "");
+    await push(ref(db, "sessions"), session);
+    $("sumSaved").textContent = "✓ Saved (no video)";
+  } catch (e) {
+    $("sumSaved").textContent = "Couldn't save: " + e.message;
+  }
+};
+
+$("againBtn").onclick = () => { previewTracker = null; show("mainScreen"); };
+
+// Live status the instructor controller reads: /live/<username>
+// needs_attention = true once incorrect reps reach ALERT_AFTER (5) during an
+// active session → the controller buzzes and shows attention_reason so a
+// volunteer knows what to help with.
+function sendLive(status, lastRep, reason) {
+  if (!db || !currentUser) return;
+  const attention = status === "active" && bad >= ALERT_AFTER;
+  set(ref(db, "live/" + currentUser), {
+    exercise: station,
+    correct: good,
+    incorrect: bad,
+    percent_correct: pct(),
+    last_rep: lastRep,
+    last_issue: reason || "",
+    needs_attention: attention,
+    attention_reason: attention ? issueSummary() : "",
+    status,                 // "active" or "done"
+    updated: serverTimestamp(),
+  }).catch((e) => console.error("Firebase live write failed:", e));
+}
+</script>
+</body>
+</html>
