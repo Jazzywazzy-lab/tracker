@@ -75,7 +75,7 @@
 <body>
 <div class="wrap">
 
-  <!-- ================= LOGIN / REGISTER ================= -->
+  <!-- login + sign up screen -->
   <section id="authScreen">
     <h1>Exercise Tracker</h1>
     <p class="sub">Log in to start your station. Your video never leaves this phone.</p>
@@ -109,13 +109,15 @@
       <select id="regStation">
         <option value="squats">Station 1 – Squats</option>
         <option value="jumping_jacks">Station 2 – Jumping jacks</option>
+        <option value="bicep_curls">Station 3 – Bicep curls</option>
+        <option value="shoulder_press">Station 4 – Shoulder press</option>
       </select>
       <div id="regError" class="error" role="alert"></div>
       <button type="submit">Create account</button>
     </form>
   </section>
 
-  <!-- ================= MAIN (CAMERA + SESSION) ================= -->
+  <!-- main screen with the camera -->
   <section id="mainScreen" class="hidden">
     <div class="topbar">
       <div class="who">Hi, <span id="whoName"></span></div>
@@ -127,6 +129,8 @@
       <select id="station">
         <option value="squats">Station 1 – Squats</option>
         <option value="jumping_jacks">Station 2 – Jumping jacks</option>
+        <option value="bicep_curls">Station 3 – Bicep curls</option>
+        <option value="shoulder_press">Station 4 – Shoulder press</option>
       </select>
       <p id="positionTip" class="sub" style="margin-bottom:0"></p>
     </div>
@@ -154,7 +158,7 @@
     <div id="mainStatus" class="status" role="status"></div>
   </section>
 
-  <!-- ================= SUMMARY ================= -->
+  <!-- shows after they end a session -->
   <section id="summaryScreen" class="hidden">
     <h1>Session complete</h1>
     <p id="sumWho" class="sub"></p>
@@ -175,9 +179,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/fireba
 import { getDatabase, ref, get, set, push, update, serverTimestamp }
   from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
 
-/* =====================================================================
-   1. FIREBASE CONFIG — paste yours from the Firebase console
-   ===================================================================== */
+// ---------- firebase setup ----------
+// copied from our firebase project settings (cccare)
 const firebaseConfig = {
   apiKey: "AIzaSyCnpUkPYH2WRN1Ort6ui0dyeG1Jj8dDUGw",
   authDomain: "cccare-ac2e3.firebaseapp.com",
@@ -188,56 +191,79 @@ const firebaseConfig = {
   appId: "1:752494505258:web:0d9572640e8755dcf8c253",
 };
 
-/* =====================================================================
-   2. FORM RULES — tune these after testing (live angles show on screen)
-   ===================================================================== */
+// ---------- form rules ----------
+// these numbers decide if a rep counts as good or bad
+// we picked them by testing on ourselves so they might need changing
 const RULES = {
   squats: {
-    downAt: 110,     // knee angle below this = person is squatting (rep has started)
-    upAt: 160,       // knee angle above this = standing again (rep ends)
-    goodDepth: 95,   // CORRECT if lowest knee angle reached is at or below this
-    maxLean: 50,     // CORRECT if torso leaned no more than this (degrees from vertical)
+    downAt: 110,     // knee goes below this = started squatting
+    upAt: 160,       // back above this = standing up, rep done
+    goodDepth: 95,   // has to get at least this low to be a good squat
+    maxLean: 50,     // how far forward they can lean before we flag it
   },
   jumping_jacks: {
-    openArm: 100,    // arms above this (or legs wider than openLeg) = "open" phase started
+    openArm: 100,    // arms go above this (or legs past openLeg) = jumping out
     openLeg: 1.5,
-    closedArm: 45,   // arms below this AND legs narrower than closedLeg = back to start
+    closedArm: 45,   // arms back down and legs together = rep done
     closedLeg: 1.35,
-    goodArm: 150,    // CORRECT if arms reached at least this (180 = straight overhead)
-    goodLeg: 1.8,    // CORRECT if feet reached at least this many hip-widths apart
+    goodArm: 150,    // arms need to get this high (180 is straight up)
+    goodLeg: 1.8,    // feet need to be this many hip widths apart
+  },
+  bicep_curls: {
+    curlAt: 90,      // elbow bends past this = curling
+    extendAt: 140,   // arm back down past this = rep done
+    goodCurl: 55,    // needs to curl up at least this far
+    goodExtend: 150, // arm has to straighten this much at the bottom
+    maxSwing: 35,    // elbow can only move this much away from the body
+  },
+  shoulder_press: {
+    // we use hand height instead of elbow angle since no one fully locks out
+    // height is in shoulder widths above the shoulders so it works for any size person
+    // 0 is shoulder level, around 0.5 is the nose, 1 is top of head, 1.6 is arms straight up
+    pressAt: 0.7,    // hands go above this = pressing
+    lowerAt: 0.4,    // hands back below this = rep done
+    goodTop: 1.3,    // hands need to get above the head
+    goodBottom: 0.3, // hands need to come back down to the shoulders
+    maxUneven: 0.35, // how uneven the two hands can be
   },
 };
 
-// Instructor is alerted (buzzer) once a participant reaches this many incorrect reps
+// after this many bad reps the instructor gets alerted (buzzer)
 const ALERT_AFTER = 5;
 
-const STATION_NAMES ={ squats: "Squats", jumping_jacks: "Jumping jacks" };
+const STATION_NAMES = {
+  squats: "Squats", jumping_jacks: "Jumping jacks",
+  bicep_curls: "Bicep curls", shoulder_press: "Shoulder press",
+};
+const STATION_NUMBERS = { squats: 1, jumping_jacks: 2, bicep_curls: 3, shoulder_press: 4 };
 const TIPS = {
   squats: "Prop the phone up side-on, about 2 m away, so your whole body (head to feet) is in frame.",
   jumping_jacks: "Face the phone, about 2.5 m away, so your whole body and raised arms fit in frame.",
+  bicep_curls: "Prop the phone up side-on, about 1.5 m away, so your head to hips and the curling arm are in frame.",
+  shoulder_press: "Face the phone, about 2 m away, so your head, both arms raised overhead, and hips are in frame.",
 };
 
-/* ===================================================================== */
+// shortcut for getting elements by id
 const $ = (id) => document.getElementById(id);
 const configured = !Object.values(firebaseConfig).includes("PASTE_HERE");
 const db = configured ? getDatabase(initializeApp(firebaseConfig)) : null;
 if (!configured) $("configNote").classList.remove("hidden");
 
-let currentUser = null;      // username
+let currentUser = null;      // whoever is logged in
 let station = "squats";
 let stream = null, pose = null, drawer = null;
 let running = false, lastVideoTime = -1;
 let good = 0, bad = 0, startTime = 0;
-let issues = {};             // tally of form problems, e.g. { "go deeper": 4 }
-let tracker = null;          // per-exercise state machine
+let issues = {};             // counts each type of mistake, like {"go deeper": 4}
+let tracker = null;          // keeps track of reps for the current exercise
 
-/* ---------- small helpers ---------- */
+// ---------- helper functions ----------
 function show(id) {
   for (const s of ["authScreen", "mainScreen", "summaryScreen"]) $(s).classList.toggle("hidden", s !== id);
 }
 function validUsername(u) { return /^[A-Za-z0-9_-]{3,20}$/.test(u); }
 async function hash(username, pass) {
-  // Not real security — just avoids storing the passcode as plain text.
+  // not real security, just so passwords arent saved as plain text
   const data = new TextEncoder().encode(username.toLowerCase() + ":" + pass);
   const buf = await crypto.subtle.digest("SHA-256", data);
   return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
@@ -248,9 +274,8 @@ function remember(u) { try { localStorage.setItem("et_user", u); } catch (e) {} 
 function forget() { try { localStorage.removeItem("et_user"); } catch (e) {} }
 function recall() { try { return localStorage.getItem("et_user"); } catch (e) { return null; } }
 
-/* =====================================================================
-   3. LOGIN / REGISTER (stored in Realtime Database, no Firebase Auth)
-   ===================================================================== */
+// ---------- login and sign up ----------
+// accounts are saved in the realtime database (not using firebase auth)
 $("tabLogin").onclick = () => switchTab(true);
 $("tabRegister").onclick = () => switchTab(false);
 function switchTab(login) {
@@ -260,6 +285,7 @@ function switchTab(login) {
   $("registerForm").classList.toggle("hidden", login);
 }
 
+// sign up: check everything then save the new user
 $("registerForm").onsubmit = async (e) => {
   e.preventDefault();
   const err = $("regError"); err.textContent = "";
@@ -281,6 +307,7 @@ $("registerForm").onsubmit = async (e) => {
   } catch (ex) { err.textContent = "Couldn't reach the database: " + ex.message; }
 };
 
+// log in: compare the hashed password with the saved one
 $("loginForm").onsubmit = async (e) => {
   e.preventDefault();
   const err = $("loginError"); err.textContent = "";
@@ -314,12 +341,13 @@ $("station").onchange = () => {
   if (db && currentUser) update(ref(db, "users/" + currentUser), { station }).catch(() => {});
 };
 function setStation(st) {
+  if (!RULES[st]) st = "squats";   // default to squats if the station is weird
   station = st;
   $("station").value = st;
   $("positionTip").textContent = TIPS[st];
 }
 
-// Stay logged in on this phone after a refresh
+// keeps them logged in if they refresh the page
 (async () => {
   const saved = recall();
   if (!saved || !db) return;
@@ -329,12 +357,10 @@ function setStation(st) {
   } catch (e) {}
 })();
 
-/* =====================================================================
-   4. CAMERA + MEDIAPIPE MODEL
-   ===================================================================== */
+// ---------- camera + mediapipe ----------
 const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
 
-// Load the pose model in the background as soon as the page opens
+// start loading the pose model right away since it takes a few seconds
 (async () => {
   try {
     const vision = await FilesetResolver.forVisionTasks(
@@ -353,6 +379,7 @@ const video = $("video"), canvas = $("canvas"), ctx = canvas.getContext("2d");
   }
 })();
 
+// turn on the front camera
 $("camBtn").onclick = async () => {
   $("mainStatus").textContent = "";
   try {
@@ -373,7 +400,7 @@ $("camBtn").onclick = async () => {
   $("camBtn").classList.add("hidden");
   $("startBtn").classList.remove("hidden");
   refreshStartBtn();
-  requestAnimationFrame(loop);   // preview skeleton + angles before starting
+  requestAnimationFrame(loop);   // start drawing the skeleton even before they hit start
 };
 
 function refreshStartBtn() {
@@ -382,6 +409,7 @@ function refreshStartBtn() {
   b.textContent = pose ? "Start session" : "Loading pose model…";
 }
 
+// turn the camera off and reset the screen
 function stopCamera() {
   running = false;
   if (stream) stream.getTracks().forEach((t) => t.stop());
@@ -397,31 +425,30 @@ function stopCamera() {
   $("setupBox").classList.remove("hidden");
 }
 
-/* =====================================================================
-   5. ANGLE MATH
-   ===================================================================== */
-// Convert a landmark (0–1 coordinates) to pixels so angles aren't stretched
+// ---------- angle math ----------
+// mediapipe gives points from 0 to 1, change to pixels so the angles are right
 function P(l) { return { x: l.x * canvas.width, y: l.y * canvas.height, v: l.visibility ?? 1 }; }
-function angle(a, b, c) {           // angle at b, in degrees
+function angle(a, b, c) {           // angle at point b in degrees
   let d = Math.abs((Math.atan2(c.y - b.y, c.x - b.x) - Math.atan2(a.y - b.y, a.x - b.x)) * 180 / Math.PI);
   return d > 180 ? 360 - d : d;
 }
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
 function smooth(prev, next, k = 0.5) { return prev == null ? next : prev + k * (next - prev); }
 
-/* ---------- SQUATS (side view) ----------
-   Knee angle = hip–knee–ankle. Torso lean = shoulder–hip line vs. vertical.
-   A rep = going below downAt, then back above upAt.
-   CORRECT if the deepest knee angle ≤ goodDepth AND lean stayed ≤ maxLean. */
+// ---------- squats (camera from the side) ----------
+// knee angle uses hip, knee and ankle
+// lean is how tilted the back is
+// one rep = go down past downAt then come back up past upAt
+// good rep = went deep enough and didnt lean too much
 function makeSquatTracker() {
   const R = RULES.squats;
   let stage = "up", lowest = 180, maxLean = 0, knee = null, lean = null;
   return {
     update(lm) {
-      const L = [11, 23, 25, 27].map((i) => P(lm[i]));   // shoulder, hip, knee, ankle (left)
-      const Rt = [12, 24, 26, 28].map((i) => P(lm[i]));  // right side
+      const L = [11, 23, 25, 27].map((i) => P(lm[i]));   // left shoulder, hip, knee, ankle
+      const Rt = [12, 24, 26, 28].map((i) => P(lm[i]));  // same for the right side
       const vis = (s) => s.reduce((t, p) => t + p.v, 0);
-      const [sh, hip, kn, an] = vis(L) >= vis(Rt) ? L : Rt;  // use the side the camera sees best
+      const [sh, hip, kn, an] = vis(L) >= vis(Rt) ? L : Rt;  // pick whichever side the camera can see better
       if (Math.min(sh.v, hip.v, kn.v, an.v) < 0.5) return { guide: "Step back so your whole body is in frame (side-on)" };
 
       knee = smooth(knee, angle(hip, kn, an));
@@ -445,11 +472,11 @@ function makeSquatTracker() {
   };
 }
 
-/* ---------- JUMPING JACKS (facing camera) ----------
-   Arm angle = hip–shoulder–elbow (0 = arms down, 180 = straight up), both sides averaged.
-   Leg spread = distance between ankles ÷ distance between hips.
-   A rep = open (arms up / legs out) then back closed.
-   CORRECT if, during the open phase, arms reached goodArm AND legs reached goodLeg. */
+// ---------- jumping jacks (facing the camera) ----------
+// arm angle uses hip, shoulder and elbow (0 is arms down, 180 is straight up)
+// leg spread = how far apart the ankles are compared to the hips
+// one rep = jump out then back in
+// good rep = arms went high enough and legs went wide enough
 function makeJJTracker() {
   const R = RULES.jumping_jacks;
   let stage = "closed", peakArm = 0, peakLeg = 0, arm = null, leg = null;
@@ -482,9 +509,100 @@ function makeJJTracker() {
   };
 }
 
-/* =====================================================================
-   6. MAIN LOOP — runs on every camera frame
-   ===================================================================== */
+// ---------- bicep curls (camera from the side) ----------
+// from the cccare "pull" category
+// elbow angle uses shoulder, elbow and wrist (around 170 straight, 40 fully curled)
+// swing checks if the elbow moves away from the body
+// good rep = full curl, arm straightens at the bottom, and elbow stays tucked in
+function makeCurlTracker() {
+  const R = RULES.bicep_curls;
+  let stage = "down", startExt = 0, top = 180, maxSwing = 0, elbow = null, swing = null;
+  return {
+    update(lm) {
+      const L = [11, 13, 15].map((i) => P(lm[i]));   // left shoulder, elbow, wrist
+      const Rt = [12, 14, 16].map((i) => P(lm[i]));  // same for the right side
+      const vis = (s) => s.reduce((t, p) => t + p.v, 0);
+      const [sh, el, wr] = vis(L) >= vis(Rt) ? L : Rt;
+      if (Math.min(sh.v, el.v, wr.v) < 0.5) return { guide: "Turn side-on so your arm is fully in frame" };
+
+      elbow = smooth(elbow, angle(sh, el, wr));
+      swing = smooth(swing, Math.atan2(Math.abs(el.x - sh.x), Math.abs(el.y - sh.y)) * 180 / Math.PI);
+      let rep = null;
+
+      if (stage === "down") {
+        startExt = Math.max(startExt, elbow);          // how straight the arm got before the curl
+        if (elbow < R.curlAt) { stage = "up"; top = elbow; maxSwing = swing; }
+      } else {
+        top = Math.min(top, elbow); maxSwing = Math.max(maxSwing, swing);
+        if (elbow > R.extendAt) {
+          stage = "down";
+          const curlOk = top <= R.goodCurl, extOk = startExt >= R.goodExtend, swingOk = maxSwing <= R.maxSwing;
+          const problems = [];
+          if (!curlOk) problems.push(`curl higher (reached ${Math.round(top)}°, aim ≤ ${R.goodCurl}°)`);
+          if (!extOk) problems.push(`straighten arm fully (only ${Math.round(startExt)}°, aim ≥ ${R.goodExtend}°)`);
+          if (!swingOk) problems.push(`keep elbow at your side (swung ${Math.round(maxSwing)}°)`);
+          rep = { ok: curlOk && extOk && swingOk, why: problems.join(" · ") };
+          startExt = elbow;
+        }
+      }
+      return { rep, text: `elbow ${Math.round(elbow)}°  swing ${Math.round(swing)}°  [${stage}]` };
+    },
+  };
+}
+
+// ---------- shoulder press (facing the camera) ----------
+// from the cccare "push" category
+// we check how high the hands go instead of the elbow angle
+// one rep = hands at shoulders, push up over the head, come back down
+// good rep = hands went above the head, came back to the shoulders, and both arms were even
+function makePressTracker() {
+  const R = RULES.shoulder_press;
+  let stage = "down", bottom = 9, peak = 0, maxDiff = 0, h = null, diff = null;
+  return {
+    update(lm) {
+      const [lS, rS, lW, rW] = [11, 12, 15, 16].map((i) => P(lm[i]));
+      if (Math.min(lS.v, rS.v, lW.v, rW.v) < 0.5)
+        return { guide: "Face the camera so your shoulders and both hands are in frame" };
+      const sw = dist(lS, rS);
+      if (sw < 20) return { guide: "Face the camera square-on" };   // shoulders too close = they turned sideways
+
+      const shY = (lS.y + rS.y) / 2;
+      const hL = (shY - lW.y) / sw, hR = (shY - rW.y) / sw;      // hand height for each side
+      h = smooth(h, (hL + hR) / 2);
+      diff = smooth(diff, Math.abs(hL - hR));
+      let rep = null;
+
+      if (stage === "down") {
+        bottom = Math.min(bottom, h);                // lowest the hands got before pushing up
+        if (h > R.pressAt) { stage = "up"; peak = h; maxDiff = diff; }
+      } else {
+        peak = Math.max(peak, h); maxDiff = Math.max(maxDiff, diff);
+        if (h < R.lowerAt) {
+          stage = "down";
+          const topOk = peak >= R.goodTop, bottomOk = bottom <= R.goodBottom, evenOk = maxDiff <= R.maxUneven;
+          const problems = [];
+          if (!topOk) problems.push(`press higher (hands ${peak.toFixed(2)}, aim ≥ ${R.goodTop} shoulder-widths)`);
+          if (!bottomOk) problems.push(`lower to shoulder level (only down to ${bottom.toFixed(2)})`);
+          if (!evenOk) problems.push(`press both arms evenly (${maxDiff.toFixed(2)} apart)`);
+          rep = { ok: topOk && bottomOk && evenOk, why: problems.join(" · ") };
+          bottom = h;
+        }
+      }
+      return { rep, text: `hands ${h.toFixed(2)}  uneven ${diff.toFixed(2)}  [${stage}]` };
+    },
+  };
+}
+
+// picks the right tracker for the station
+function makeTracker(st) {
+  if (st === "jumping_jacks") return makeJJTracker();
+  if (st === "bicep_curls") return makeCurlTracker();
+  if (st === "shoulder_press") return makePressTracker();
+  return makeSquatTracker();
+}
+
+// ---------- main loop ----------
+// runs every camera frame
 let previewTracker = null;
 function loop() {
   if (!stream) return;
@@ -494,11 +612,11 @@ function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     const lm = result.landmarks[0];
 
-    // Before a session starts, still show live angles so you can test positions
+    // still track before they press start so we can tell them if they are in frame
     const t = running ? tracker
-      : (previewTracker ||= station === "squats" ? makeSquatTracker() : makeJJTracker());
+      : (previewTracker ||= makeTracker(station));
 
-    // Draw the skeleton: lines + dots (no angle numbers)
+    // draw the skeleton lines and dots on the video
     if (lm) {
       drawer.drawConnectors(lm, PoseLandmarker.POSE_CONNECTIONS, { color: "#7fe0bf", lineWidth: 4 });
       drawer.drawLandmarks(lm, { color: "#ffffff", radius: 3 });
@@ -517,12 +635,12 @@ function loop() {
 }
 $("station").addEventListener("change", () => { previewTracker = null; });
 
-// Participants never see if a rep was correct — only the instructor does
+// participants dont see if the rep was good or bad, only the instructor does
 function countRep(rep) {
   if (rep.ok) good++;
   else {
     bad++;
-    // "go deeper (reached 106°…) · keep chest up (…)" → count "go deeper", "keep chest up"
+    // take the main part of each mistake (like "go deeper") and add it to the count
     for (const p of (rep.why || "incorrect form").split(" · ")) {
       const key = p.split(" (")[0];
       issues[key] = (issues[key] || 0) + 1;
@@ -532,22 +650,21 @@ function countRep(rep) {
   sendLive("active", rep.ok ? "CORRECT" : "INCORRECT", rep.ok ? "" : rep.why);
 }
 
-// e.g. "go deeper ×4 · keep chest up ×2" (most common first)
+// makes a short list of mistakes for the instructor, most common first
 function issueSummary() {
   return Object.entries(issues).sort((a, b) => b[1] - a[1])
     .map(([k, n]) => `${k} ×${n}`).join(" · ");
 }
 function setMsg(text, kind) { $("msg").textContent = text; $("msg").className = "msg " + kind; }
 
-/* =====================================================================
-   7. START / END SESSION + FIREBASE WRITES
-   ===================================================================== */
+// ---------- start/end session and saving to firebase ----------
+// reset the counts and start tracking
 $("startBtn").onclick = () => {
   good = 0; bad = 0; issues = {}; startTime = Date.now();
-  tracker = station === "squats" ? makeSquatTracker() : makeJJTracker();
+  tracker = makeTracker(station);
   running = true;
   $("sessionExercise").textContent = STATION_NAMES[station];
-  $("sessionStation").textContent = station === "squats" ? "Station 1" : "Station 2";
+  $("sessionStation").textContent = "Station " + STATION_NUMBERS[station];
   setMsg("Go! Start your " + STATION_NAMES[station].toLowerCase(), "");
   $("setupBox").classList.add("hidden");
   $("sessionBox").classList.remove("hidden");
@@ -556,6 +673,7 @@ $("startBtn").onclick = () => {
   sendLive("active", "", "");
 };
 
+// end session: show the summary and save the results
 $("endBtn").onclick = async () => {
   running = false;
   const secs = Math.round((Date.now() - startTime) / 1000);
@@ -581,7 +699,7 @@ $("endBtn").onclick = async () => {
 
   try {
     sendLive("done", "", "");
-    await push(ref(db, "sessions"), session);
+    await push(ref(db, "sessions"), session);   // permanent record for tracking progress
     $("sumSaved").textContent = "✓ Saved (no video)";
   } catch (e) {
     $("sumSaved").textContent = "Couldn't save: " + e.message;
@@ -590,10 +708,9 @@ $("endBtn").onclick = async () => {
 
 $("againBtn").onclick = () => { previewTracker = null; show("mainScreen"); };
 
-// Live status the instructor controller reads: /live/<username>
-// needs_attention = true once incorrect reps reach ALERT_AFTER (5) during an
-// active session → the controller buzzes and shows attention_reason so a
-// volunteer knows what to help with.
+// updates live/<username> in firebase, this is what the arduino controller reads
+// needs_attention turns true after 5 bad reps so the buzzer goes off
+// attention_reason tells the volunteer what to help with
 function sendLive(status, lastRep, reason) {
   if (!db || !currentUser) return;
   const attention = status === "active" && bad >= ALERT_AFTER;
@@ -606,7 +723,7 @@ function sendLive(status, lastRep, reason) {
     last_issue: reason || "",
     needs_attention: attention,
     attention_reason: attention ? issueSummary() : "",
-    status,                 // "active" or "done"
+    status,                 // either "active" or "done"
     updated: serverTimestamp(),
   }).catch((e) => console.error("Firebase live write failed:", e));
 }
